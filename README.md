@@ -88,32 +88,54 @@ do
 done
 ```
 
-## Python 2
-
-Напишите утилиту, которая принимает на stdin кириллические домены в кодировках utf-8 и cp1251 (заранее неизвестно какая именно, при этом разные строки могут быть в разных кодировках) и выводят их закодированными по IDNA (плохойсайтик.рф -> xn--80aqbbgbvagyn4a.xn--p1ai). Учтите, что домены могут быть не только в зоне .рф.
-
 ## PCAP, трафик
 
-Напишите неинтерактивную программу на любом языке программирования, который покажется наиболее подходящим для этой задачи, которая анализирует трафик на вашем компьютере, собирает 5 доменных имён из запросов к DNS-серверам, а затем логирует последующие 10 пакетов с HTTP и HTTPS запросами к этим доменам.
+>Напишите неинтерактивную программу на любом языке программирования, который покажется наиболее подходящим для этой задачи, которая анализирует трафик на вашем >компьютере, собирает 5 доменных имён из запросов к DNS-серверам, а затем логирует последующие 10 пакетов с HTTP и HTTPS запросами к этим доменам.
+>
+>Bonus point: воспроизведите те пойманные 10 HTTP и HTTPS запросов.
 
-Bonus point: воспроизведите те пойманные 10 HTTP и HTTPS запросов.
+Решено ✓
 
-## Базы данных, SQLAlchemy
+```python
+from scapy import all as scapy
 
-Создайте таблицу в любой базе данных (рекомендую sqlite).
+interface = "Intel(R) Ethernet Connection (2) I219-V"
 
-``` sql
-CREATE TABLE history (date timestamp, counter integer);
+def collect_dns():
+	dns_recv = dict()
+	def has_dns_ans(x):
+		nonlocal dns_recv
+		if not x.haslayer(scapy.DNS):
+			return False
+		ans = x.an
+		if not isinstance(ans, scapy.DNSRR):
+			return False
+		if ans.type != 1 or ans.rrname in dns_recv:
+			return False
+		dns_recv[ans.rrname] = ans.rdata
+		return True
+	scapy.sniff(lfilter=has_dns_ans, count=5)
+	return dns_recv
+
+def collect_pkts(ips):
+	pkts = []
+	def filt(x):
+		return (x.haslayer(HTTPRequest) or x.haslayer(TLS)) and x[scapy.IP].dst in ips
+	def store(x):
+		pkts.append(x)
+	scapy.sniff(lfilter=filt, prn=store, count=10)
+	return pkts
+
+if __name__ == "__main__":
+	scapy.conf.iface = interface
+	scapy.load_layer("http")
+	scapy.load_layer("tls")
+	dns = collect_dns()
+	print("-- dns:")
+	for name in dns:
+		print(name, "=>", dns[name])
+	pkts = collect_pkts(set(dns.values()))
+	print("-- pkts:")
+	for pkt in pkts:
+		print(pkt.summary())
 ```
-Напишите две программы:
-
-1. Заполняет таблицу случайными данными за последнюю неделю с интервалом в 1 час. Любой язык.
-2. С помощью SQLAlchemy получает отчёт вида: дата, максимальное значение counter за день, сумма всех counter за день. Python.
-
-## Гляньте документацию
-
-Вообще о том, чем придётся заниматься в проекте довольно хорошо говорит документация. Можете её глянуть, она в открытом доступе - https://docs.carbonsoft.ru/113115207
-
-В принципе и сам продукт над которым предстоит работать тоже можно взять и установить, пощупать. Разве что, возможно, настройка схемы [тестовый абонент] -> [carbon reductor с режиме роутера с nat] -> [интернет] займёт много времени.
-
-Подумайте заранее, точно ли это то, чем вы готовы заниматься хотя бы полгода-год.
